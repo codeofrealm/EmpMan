@@ -1,4 +1,3 @@
-import hashlib
 import os
 import sys
 from contextlib import closing
@@ -6,6 +5,7 @@ from typing import Dict, Sequence
 
 import psycopg2
 from psycopg2 import sql
+from werkzeug.security import generate_password_hash, check_password_hash
 
 ADMIN_TABLE = "admin"
 USER_TABLE = "users"
@@ -24,7 +24,7 @@ def db_config() -> Dict[str, object]:
 
 
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    return generate_password_hash(password)
 
 
 def get_connection():
@@ -39,7 +39,8 @@ def initialize_db() -> None:
                 CREATE TABLE IF NOT EXISTS {ADMIN_TABLE} (
                     admin_id SERIAL PRIMARY KEY,
                     username VARCHAR(100) NOT NULL UNIQUE,
-                    password_hash CHAR(64) NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    company_name VARCHAR(150) NOT NULL DEFAULT '',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """
@@ -49,7 +50,7 @@ def initialize_db() -> None:
                 CREATE TABLE IF NOT EXISTS {USER_TABLE} (
                     user_id SERIAL PRIMARY KEY,
                     username VARCHAR(100) NOT NULL UNIQUE,
-                    password_hash CHAR(64) NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
                     create_admin_id INT NOT NULL REFERENCES {ADMIN_TABLE}(admin_id) ON DELETE CASCADE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -77,18 +78,18 @@ def validate_login(table_name: str, username: str, password: str) -> bool:
 
     query = sql.SQL(
         """
-        SELECT 1
+        SELECT password_hash
         FROM {table}
         WHERE username = %s
-          AND password_hash = %s
         LIMIT 1
         """
     ).format(table=sql.Identifier(table_name))
 
     with closing(get_connection()) as conn:
         with conn.cursor() as cur:
-            cur.execute(query, (username.strip(), hash_password(password)))
-            return cur.fetchone() is not None
+            cur.execute(query, (username.strip(),))
+            row = cur.fetchone()
+            return row is not None and check_password_hash(row[0], password)
 
 
 def create_user(admin_username: str, admin_password: str, username: str, password: str) -> bool:

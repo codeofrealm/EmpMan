@@ -1,368 +1,177 @@
-import { useEffect, useMemo, useState } from "react"
-
-const API_BASE =
-  (import.meta.env.VITE_API_BASE_URL ||
-    "http://127.0.0.1:5000/api").trim()
-
-function normalizeUsers(data) {
-  if (!Array.isArray(data)) return []
-  return data.map((u) => ({
-    username: u.username,
-    createdBy: u.created_by || "admin",
-  }))
-}
-
-function normalizeLogs(data) {
-  if (!Array.isArray(data)) return []
-  return data.map((l) => ({
-    activity: l.activity,
-    timestamp: l.timestamp,
-  }))
-}
+import { useState, useEffect } from "react";
+import { AuthPage } from "./pages/AuthPage";
+import { DashboardPage } from "./pages/DashboardPage";
+import { EmployeesPage } from "./pages/EmployeesPage";
+import { UserLogsPage } from "./pages/UserLogsPage";
+import { Sidebar } from "./components/Sidebar";
+import { Topbar } from "./components/Topbar";
+import { Toast } from "./components/Toast";
+import { adminService } from "./api/adminService";
 
 function App() {
-  const [auth, setAuth] = useState({ username: "", password: "" })
-  const [newUser, setNewUser] = useState({ username: "", password: "" })
-  const [users, setUsers] = useState([])
-  const [selectedUser, setSelectedUser] = useState("")
-  const [logs, setLogs] = useState([])
-  const [token, setToken] = useState(localStorage.getItem("token") || "")
-  const [loggedInAdmin, setLoggedInAdmin] = useState(
-    localStorage.getItem("admin") || ""
-  )
-  const [status, setStatus] = useState("")
-  const [loading, setLoading] = useState(false)
+  const [token, setToken] = useState(localStorage.getItem("admin_token"));
+  const [loggedInAdmin, setLoggedInAdmin] = useState(localStorage.getItem("admin_user"));
+  const [companyName, setCompanyName] = useState(localStorage.getItem("company_name") || "Neo");
+  const [currentTab, setCurrentTab] = useState("Dashboard");
+  
+  const [users, setUsers] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleLogin = async (username, password) => {
+    setLoading(true);
+    try {
+      const data = await adminService.login(username, password);
+      localStorage.setItem("admin_token", data.token);
+      localStorage.setItem("admin_user", username);
+      localStorage.setItem("company_name", data.companyName);
+      setToken(data.token);
+      setLoggedInAdmin(username);
+      setCompanyName(data.companyName);
+      showToast("Welcome back, " + username);
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("admin_token");
+    localStorage.removeItem("admin_user");
+    localStorage.removeItem("company_name");
+    setToken(null);
+    setLoggedInAdmin(null);
+    setCompanyName("Neo");
+    setSelectedUser(null);
+    setUsers([]);
+    setLogs([]);
+    setCurrentTab("Dashboard");
+  };
+
+  const loadUsers = async () => {
+    if (!token) return;
+    try {
+      const data = await adminService.getUsers(token);
+      setUsers(data);
+    } catch (err) {
+      if (err.message.includes("401") || err.message.includes("token")) {
+        handleLogout();
+      }
+    }
+  };
+
+  const handleCreateUser = async (username, password) => {
+    setLoading(true);
+    try {
+      await adminService.createUser(token, username, password);
+      showToast("User provisioned successfully");
+      loadUsers();
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadLogs = async (username) => {
+    setSelectedUser(username);
+    setLoading(true);
+    try {
+      const data = await adminService.getLogs(token, username);
+      setLogs(data);
+      setCurrentTab("UserLogs"); // Move to logs page
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (token) {
-      loadUsers(token)
-    }
-  }, [token])
+    if (token) loadUsers();
+  }, [token]);
 
-  const sortedUsers = useMemo(
-    () => [...users].sort((a, b) => a.username.localeCompare(b.username)),
-    [users]
-  )
-
-  const sortedLogs = useMemo(
-    () => [...logs].sort(
-      (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
-    ),
-    [logs]
-  )
-
-  const authHeaders = () => ({
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${token}`,
-  })
-
-  // ================= SAFE FETCH =================
-  const safeFetch = async (url, options) => {
-    const res = await fetch(url, options)
-
-    let data
-    try {
-      data = await res.json()
-    } catch {
-      throw new Error("Server error")
-    }
-
-    if (!res.ok) {
-      throw new Error(data?.error || "Request failed")
-    }
-
-    return data
-  }
-
-  // ================= LOGIN =================
-  const handleLogin = async () => {
-    if (!auth.username || !auth.password) {
-      setStatus("Username and password required")
-      return
-    }
-
-    setLoading(true)
-    setStatus("")
-
-    try {
-      const data = await safeFetch(`${API_BASE}/admin/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(auth),
-      })
-
-      setToken(data.token)
-      setLoggedInAdmin(data.admin)
-
-      localStorage.setItem("token", data.token)
-      localStorage.setItem("admin", data.admin)
-
-      setAuth({ username: "", password: "" })
-    } catch (err) {
-      setStatus(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // ================= REGISTER =================
-  const handleRegister = async () => {
-    if (!auth.username || !auth.password) {
-      setStatus("Username and password required")
-      return
-    }
-
-    setLoading(true)
-    setStatus("")
-
-    try {
-      await safeFetch(`${API_BASE}/admin/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(auth),
-      })
-
-      setStatus("Admin registered. You can login now.")
-    } catch (err) {
-      setStatus(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // ================= LOAD USERS =================
-  const loadUsers = async (sessionToken = token) => {
-    try {
-      const data = await safeFetch(`${API_BASE}/admin/users`, {
-        headers: { Authorization: `Bearer ${sessionToken}` },
-      })
-
-      setUsers(normalizeUsers(data))
-    } catch (err) {
-      setStatus(err.message)
-    }
-  }
-
-  // ================= CREATE USER =================
-  const handleCreateUser = async () => {
-    if (!newUser.username || !newUser.password) {
-      setStatus("Username and password required")
-      return
-    }
-
-    setLoading(true)
-    setStatus("")
-
-    try {
-      await safeFetch(`${API_BASE}/admin/users`, {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify(newUser),
-      })
-
-      setNewUser({ username: "", password: "" })
-      await loadUsers()
-      setStatus("User created successfully.")
-    } catch (err) {
-      setStatus(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // ================= LOAD LOGS =================
-  const loadLogs = async (username) => {
-    try {
-      const data = await safeFetch(
-        `${API_BASE}/admin/users/${username}/logs`,
-        { headers: authHeaders() }
-      )
-
-      setSelectedUser(username)
-      setLogs(normalizeLogs(data))
-    } catch (err) {
-      setStatus(err.message)
-    }
-  }
-
-  // ================= LOGOUT =================
-  const handleLogout = () => {
-    setToken("")
-    setUsers([])
-    setLogs([])
-    setSelectedUser("")
-    setLoggedInAdmin("")
-    localStorage.clear()
-  }
-
-  // ================= LOGIN PAGE =================
   if (!token) {
     return (
-      <main className="page">
-        <section className="card auth-card">
-          <h1>Admin Login</h1>
-          <p className="sub">Manage kiosk users and activity logs</p>
-          <div className="form">
-            <label>
-              Username
-              <input
-                type="text"
-                placeholder="Username"
-                value={auth.username}
-                onChange={(e) =>
-                  setAuth({ ...auth, username: e.target.value })
-                }
-              />
-            </label>
-
-            <label>
-              Password
-              <input
-                type="password"
-                placeholder="Password"
-                value={auth.password}
-                onChange={(e) =>
-                  setAuth({ ...auth, password: e.target.value })
-                }
-              />
-            </label>
-
-            <div style={{ display: "flex", gap: "10px", marginTop: "4px" }}>
-              <button onClick={handleLogin} disabled={loading}>
-                {loading ? "Loading..." : "Login"}
-              </button>
-
-              <button
-                className="secondary"
-                onClick={handleRegister}
-                disabled={loading}
-              >
-                {loading ? "Loading..." : "Register"}
-              </button>
-            </div>
-          </div>
-
-          {status && <p className="status">{status}</p>}
-        </section>
-      </main>
-    )
+      <>
+        {toast && <Toast message={toast.message} type={toast.type} />}
+        <AuthPage onLogin={handleLogin} loading={loading} />
+      </>
+    );
   }
 
-  // ================= DASHBOARD =================
+  const renderContent = () => {
+    switch (currentTab) {
+      case "Dashboard":
+        return (
+          <DashboardPage 
+            users={users}
+            logs={logs}
+            selectedUser={selectedUser}
+            loading={loading}
+            loggedInAdmin={loggedInAdmin}
+            onCreateUser={handleCreateUser}
+            onLoadLogs={loadLogs}
+          />
+        );
+      case "Employees":
+        return (
+          <EmployeesPage 
+            users={users} 
+            onLoadLogs={loadLogs} 
+            onCreateUser={handleCreateUser} 
+            loading={loading}
+          />
+        );
+      case "UserLogs":
+        return (
+          <UserLogsPage 
+            username={selectedUser} 
+            logs={logs} 
+            onBack={() => setCurrentTab("Dashboard")} 
+          />
+        );
+      default:
+        return <DashboardPage />;
+    }
+  };
+
   return (
-    <main className="page">
-      <header className="header">
-        <h2>Welcome, {loggedInAdmin}</h2>
-        <button className="secondary" onClick={handleLogout}>
-          Logout
-        </button>
-      </header>
+    <div className="flex min-h-screen bg-[#f4f7fe]">
+      {/* Sidebar - Fixed Width */}
+      <Sidebar 
+        activeTab={currentTab} 
+        onTabChange={setCurrentTab} 
+        onLogout={handleLogout} 
+        companyName={companyName}
+      />
 
-      <section className="grid-two">
-        <article className="card">
-          <h3>Create User</h3>
-          <p className="hint">Create users for kiosk unlock access</p>
-          <div className="form">
-            <label>
-              Username
-              <input
-                type="text"
-                placeholder="New username"
-                value={newUser.username}
-                onChange={(e) =>
-                  setNewUser({ ...newUser, username: e.target.value })
-                }
-              />
-            </label>
-            <label>
-              Password
-              <input
-                type="password"
-                placeholder="New password"
-                value={newUser.password}
-                onChange={(e) =>
-                  setNewUser({ ...newUser, password: e.target.value })
-                }
-              />
-            </label>
-            <button onClick={handleCreateUser} disabled={loading}>
-              {loading ? "Saving..." : "Create User"}
-            </button>
-          </div>
-        </article>
+      {/* Main Content Area - Flexible Width with Offset */}
+      <div className="flex-1 ml-64 min-h-screen flex flex-col">
+        <Topbar adminName={loggedInAdmin} />
+        
+        <main className="flex-1">
+          {renderContent()}
+        </main>
 
-        <article className="card">
-          <h3>Users</h3>
-          <p className="hint">Users created by this admin account</p>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Username</th>
-                  <th>Created By</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedUsers.length === 0 ? (
-                  <tr>
-                    <td colSpan={3}>No users found.</td>
-                  </tr>
-                ) : (
-                  sortedUsers.map((u) => (
-                    <tr key={u.username}>
-                      <td>{u.username}</td>
-                      <td>{u.createdBy}</td>
-                      <td>
-                        <button
-                          className="secondary"
-                          onClick={() => loadLogs(u.username)}
-                        >
-                          View Logs
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </article>
-      </section>
+        <footer className="p-8 text-center border-t border-slate-100">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+            &copy; 2026 Astraval Neo &bull; All Rights Reserved
+          </p>
+        </footer>
+      </div>
 
-      {selectedUser && (
-        <section className="card" style={{ marginTop: "18px" }}>
-          <h3>Logs for {selectedUser}</h3>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Activity</th>
-                  <th>Timestamp</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedLogs.length === 0 ? (
-                  <tr>
-                    <td colSpan={2}>No logs found.</td>
-                  </tr>
-                ) : (
-                  sortedLogs.map((log, i) => (
-                    <tr key={i}>
-                      <td>{log.activity}</td>
-                      <td>{new Date(log.timestamp).toLocaleString()}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {status && <p className="status">{status}</p>}
-    </main>
-  )
+      {toast && <Toast message={toast.message} type={toast.type} />}
+    </div>
+  );
 }
 
-export default App
+export default App;

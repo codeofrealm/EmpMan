@@ -53,13 +53,15 @@ Name: "{group}\Uninstall Kiosk Lock"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Kiosk Lock"; Filename: "{app}\kiosk_lock.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-; 1. Create auto-start scheduled task
+; 1. Create auto-start scheduled task (admin-elevated, visible terminal so user sees result)
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
+    Description: "Registering Kiosk Auto-Start scheduled task..."; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\setup_kiosk_task.ps1"" -PauseOnError false"; \
-    Flags: postinstall waituntilterminated runhidden
+    Flags: postinstall waituntilterminated runascurrentuser
 
 ; 2. Run validation script
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
+    Description: "Validating installation..."; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\post_install_validate.ps1"" -InstallDir ""{app}"""; \
     Flags: postinstall waituntilterminated runhidden
 
@@ -67,7 +69,7 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
 Filename: "{app}\kiosk_lock.exe"; Description: "Launch Kiosk Lock now"; Flags: postinstall nowait skipifsilent unchecked
 
 [UninstallRun]
-; Clean up the Scheduled Task
+; Clean up ALL Kiosk scheduled tasks on uninstall
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""Get-ScheduledTask -TaskName 'KioskAutoStart*' -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false"""; \
-    Flags: runhidden
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""Get-ScheduledTask -TaskName 'KioskAutoStart*' -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false; Get-ScheduledTask -TaskName 'RunKioskOnUnlock_AllUsers' -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false; Get-ScheduledTask -TaskName 'RunB18ScriptOnUnlock' -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false"""; \
+    Flags: runhidden waituntilterminated

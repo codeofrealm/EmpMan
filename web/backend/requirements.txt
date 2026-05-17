@@ -1,0 +1,4 @@
+flask
+flask-cors
+pyjwt
+psycopg2-binary
