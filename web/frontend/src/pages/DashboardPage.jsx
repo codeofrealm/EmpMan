@@ -17,7 +17,8 @@ export const DashboardPage = ({
   loading, 
   loggedInAdmin,
   onCreateUser, 
-  onLoadLogs 
+  onLoadLogs,
+  onSelectUser
 }) => {
   const [newUser, setNewUser] = useState({ username: "", password: "" });
 
@@ -31,16 +32,52 @@ export const DashboardPage = ({
     <div className="p-8 space-y-8 animate-in fade-in duration-700">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-black text-slate-800">Attendance</h1>
-          <p className="text-slate-400 font-medium text-sm mt-1">Dashboard / Attendance</p>
+          <h1 className="text-2xl font-black text-slate-800">Dashboard</h1>
+          <p className="text-slate-400 font-medium text-sm mt-1">Dashboard / Attendance & Live Stream</p>
         </div>
         <button 
           className="bg-[#1b6ef3] text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-500/20 hover:bg-blue-700 transition-all active:scale-95"
-          onClick={() => document.getElementById('add-user-modal').scrollIntoView({ behavior: 'smooth' })}
+          onClick={() => {
+            const el = document.getElementById('add-user-modal');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }}
         >
           <Plus size={18} />
           <span>Quick Provision</span>
         </button>
+      </div>
+
+      {/* KPI Cards Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="neo-card p-6 flex items-center gap-6">
+          <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-[#1b6ef3]">
+            <Users size={24} />
+          </div>
+          <div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Employees</p>
+            <h3 className="text-2xl font-black text-slate-800 mt-1">{users.length} Registered</h3>
+          </div>
+        </div>
+
+        <div className="neo-card p-6 flex items-center gap-6">
+          <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-500">
+            <Activity size={24} />
+          </div>
+          <div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Kiosk Terminals</p>
+            <h3 className="text-2xl font-black text-slate-800 mt-1">1 Online</h3>
+          </div>
+        </div>
+
+        <div className="neo-card p-6 flex items-center gap-6">
+          <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-500">
+            <Clock size={24} />
+          </div>
+          <div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Kiosk Logs Stream</p>
+            <h3 className="text-2xl font-black text-slate-800 mt-1">Operational</h3>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
@@ -102,7 +139,7 @@ export const DashboardPage = ({
             <StatRow label="Today" value="3.45" max="8" color="bg-emerald-400" />
             <StatRow label="This Week" value="28" max="40" color="bg-orange-400" />
             <StatRow label="This Month" value="90" max="160" color="bg-amber-500" />
-            <StatRow label="Remaining" value="90" max="160" color="bg-blue-500" />
+            <StatRow label="Remaining" value="90" max="160" color="bg-blue-50" />
             <StatRow label="Overtime" value="5" max="10" color="bg-yellow-400" />
           </div>
         </div>
@@ -126,75 +163,155 @@ export const DashboardPage = ({
         </div>
       </div>
 
+      {/* Master-Detail Columns for Employee logs */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-        {/* Activity Logs (Full Width) */}
-        <div className="xl:col-span-12">
-          <div className="neo-card">
-            <div className="flex items-center justify-between mb-8">
+        {/* Left Column: Registered Employees List */}
+        <div className="xl:col-span-4">
+          <div className="neo-card h-[520px] flex flex-col">
+            <div className="mb-6">
+              <h3 className="font-black text-slate-800 text-xl">Employee Directory</h3>
+              <p className="text-slate-400 font-bold text-xs mt-1">Select an employee to stream live logs</p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto pr-2 space-y-3">
+              {users.length === 0 ? (
+                <p className="text-center py-12 text-slate-400 text-sm font-medium">No employees provisioned yet.</p>
+              ) : (
+                users.map((u) => {
+                  const isSelected = selectedUser === u.username;
+                  return (
+                    <div 
+                      key={u.username}
+                      onClick={() => onSelectUser(u.username)}
+                      className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-center justify-between group ${
+                        isSelected 
+                          ? "bg-blue-50/50 border-[#1b6ef3]/30 text-slate-800" 
+                          : "bg-[#f8fafc] border-slate-100 hover:border-slate-200 text-slate-700"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm transition-colors ${
+                          isSelected ? "bg-[#1b6ef3] text-white" : "bg-slate-200 text-slate-600"
+                        }`}>
+                          {u.username.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-black text-sm">{u.username}</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Created by {u.createdBy || "Admin"}</p>
+                        </div>
+                      </div>
+                      <ChevronRight className={`w-5 h-5 transition-transform ${
+                        isSelected ? "text-[#1b6ef3] translate-x-0.5" : "text-slate-300 group-hover:translate-x-0.5"
+                      }`} />
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column: Live Logs Stream */}
+        <div className="xl:col-span-8">
+          <div className="neo-card h-[520px] flex flex-col">
+            <div className="flex items-center justify-between mb-6">
               <div>
                 <h3 className="font-black text-slate-800 text-xl">Recent Activity Trail</h3>
-                <p className="text-slate-400 font-bold text-xs mt-1">Real-time kiosk monitoring stream</p>
+                <p className="text-slate-400 font-bold text-xs mt-1">
+                  {selectedUser ? `Live logs stream for ${selectedUser}` : "Real-time kiosk monitoring stream"}
+                </p>
               </div>
-              <div className="p-2 bg-slate-50 text-slate-400 rounded-lg">
-                <ArrowUpRight size={16} />
-              </div>
+              {selectedUser && (
+                <div className="p-2 bg-slate-50 text-slate-400 rounded-lg animate-pulse">
+                  <Activity size={16} className="text-emerald-500" />
+                </div>
+              )}
             </div>
 
             {selectedUser ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-                <div className="space-y-6 max-h-[600px] overflow-y-auto pr-4">
-                  {logs.length === 0 ? (
-                    <p className="text-center py-12 text-slate-400 text-sm font-medium">No records for {selectedUser}</p>
-                  ) : (
-                    logs.map((log, i) => (
-                      <div key={i} className="flex gap-4 group">
-                        <div className="flex flex-col items-center">
-                          <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs border-2 border-white shadow-sm">
-                            {i + 1}
-                          </div>
-                          {i !== logs.length - 1 && <div className="w-[2px] h-full bg-slate-100 my-1" />}
+              <div className="flex-1 overflow-y-auto pr-2 space-y-4">
+                {logs.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-8">
+                    <p className="text-slate-400 text-sm font-medium">No live kiosk activity recorded for {selectedUser} yet.</p>
+                  </div>
+                ) : (
+                  logs.map((log, i) => (
+                    <div key={i} className="flex gap-4 group animate-in slide-in-from-bottom-2 duration-300">
+                      <div className="flex flex-col items-center">
+                        <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs border-2 border-white shadow-sm">
+                          {i + 1}
                         </div>
-                        <div className="flex-1 pb-4">
-                          <div className="flex items-center justify-between mb-1">
-                            <p className="text-sm font-black text-slate-800 leading-none">{log.activity}</p>
-                          </div>
-                          <p className="text-[11px] font-bold text-slate-400 flex items-center gap-1.5">
-                            <CalendarIcon size={12} />
-                            {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </p>
-                        </div>
+                        {i !== logs.length - 1 && <div className="w-[2px] h-full bg-slate-100 my-1" />}
                       </div>
-                    ))
-                  )}
-                </div>
-                <div className="bg-[#f8fafc] rounded-[32px] p-8 flex flex-col items-center justify-center text-center border border-slate-50">
-                   <div className="w-20 h-20 rounded-[28px] bg-white shadow-xl flex items-center justify-center text-2xl font-black text-[#1b6ef3] mb-6">
-                     {selectedUser.charAt(0).toUpperCase()}
-                   </div>
-                   <h4 className="text-xl font-black text-slate-800">{selectedUser}</h4>
-                   <p className="text-slate-400 font-bold text-xs mt-2 uppercase tracking-widest">Active Session</p>
-                   <button 
-                    onClick={() => onLoadLogs(selectedUser)}
-                    className="mt-8 px-6 py-3 bg-white text-[#1b6ef3] font-black rounded-xl shadow-lg shadow-blue-500/5 hover:shadow-blue-500/10 transition-all active:scale-95 flex items-center gap-2"
-                   >
-                     <ChevronRight size={18} />
-                     <span>View Full Profile</span>
-                   </button>
-                </div>
+                      <div className="flex-1 pb-4">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-sm font-black text-slate-800 leading-none">{log.activity}</p>
+                        </div>
+                        <p className="text-[11px] font-bold text-slate-400 flex items-center gap-1.5">
+                          <CalendarIcon size={12} />
+                          {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             ) : (
-              <div className="h-96 flex flex-col items-center justify-center text-center p-8">
-                <div className="w-20 h-20 bg-slate-50 rounded-[28px] flex items-center justify-center text-slate-200 mb-6">
-                  <Activity size={40} />
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+                <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-300 mb-4">
+                  <Activity size={32} />
                 </div>
-                <h4 className="text-xl font-black text-slate-800">No User Selected</h4>
-                <p className="text-slate-400 font-bold text-sm mt-2 max-w-xs">
-                  Go to the Employee Directory to select a member and monitor their live activity stream here.
+                <h4 className="text-lg font-black text-slate-800">No Employee Selected</h4>
+                <p className="text-slate-400 font-bold text-xs mt-2 max-w-xs uppercase tracking-widest leading-normal">
+                  Select an employee from the directory on the left to stream their live kiosk actions here.
                 </p>
               </div>
             )}
           </div>
         </div>
+      </div>
+
+      {/* Provision Employee Section */}
+      <div id="add-user-modal" className="neo-card p-8 scroll-mt-8">
+        <div className="mb-6">
+          <h3 className="font-black text-slate-800 text-xl">Quick Provision Employee</h3>
+          <p className="text-slate-400 font-bold text-xs mt-1">Register new terminal user credentials directly to PostgreSQL</p>
+        </div>
+
+        <form onSubmit={handleCreateSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Username</label>
+            <input
+              type="text"
+              placeholder="Enter new username"
+              className="premium-input h-[50px] w-full"
+              value={newUser.username}
+              onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Password</label>
+            <input
+              type="password"
+              placeholder="Enter new password"
+              className="premium-input h-[50px] w-full"
+              value={newUser.password}
+              onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+              required
+            />
+          </div>
+
+          <button 
+            type="submit" 
+            disabled={loading}
+            className="premium-btn h-[50px] font-black w-full flex items-center justify-center gap-2"
+          >
+            <UserPlus size={18} />
+            <span>{loading ? "Provisioning..." : "Provision Employee"}</span>
+          </button>
+        </form>
       </div>
     </div>
   );

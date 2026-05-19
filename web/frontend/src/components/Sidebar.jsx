@@ -3,16 +3,8 @@ import {
   Grid, 
   Users, 
   UserCircle, 
-  Briefcase, 
-  Ticket, 
-  Wallet, 
-  FileText, 
-  BarChart3, 
-  Target, 
-  GraduationCap, 
-  TrendingUp,
-  LogOut,
-  ShieldAlert
+  Settings,
+  LogOut
 } from "lucide-react";
 
 const SidebarItem = ({ icon: Icon, label, active = false, onClick }) => (
@@ -63,20 +55,22 @@ export const Sidebar = ({ activeTab = "Dashboard", onTabChange, onLogout, compan
           active={activeTab === "Employees"} 
           onClick={() => onTabChange("Employees")}
         />
-        <SidebarItem icon={UserCircle} label="Clients" />
-        <SidebarItem icon={Briefcase} label="Projects" />
-        <SidebarItem icon={Ticket} label="Tickets" />
 
         <div className="px-6 mb-2 mt-6">
-          <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">HR</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Account</span>
         </div>
-        <SidebarItem icon={Wallet} label="Accounts" />
-        <SidebarItem icon={FileText} label="Payroll" />
-        <SidebarItem icon={ShieldAlert} label="Policies" />
-        <SidebarItem icon={BarChart3} label="Reports" />
-        <SidebarItem icon={Target} label="Performance" />
-        <SidebarItem icon={TrendingUp} label="Goals" />
-        <SidebarItem icon={GraduationCap} label="Training" />
+        <SidebarItem 
+          icon={UserCircle} 
+          label="Profile" 
+          active={activeTab === "Profile"} 
+          onClick={() => onTabChange("Profile")}
+        />
+        <SidebarItem 
+          icon={Settings} 
+          label="Settings" 
+          active={activeTab === "Settings"} 
+          onClick={() => onTabChange("Settings")}
+        />
       </div>
 
       <div className="mt-auto p-6">

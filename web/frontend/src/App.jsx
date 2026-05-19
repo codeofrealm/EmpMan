@@ -3,6 +3,8 @@ import { AuthPage } from "./pages/AuthPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { EmployeesPage } from "./pages/EmployeesPage";
 import { UserLogsPage } from "./pages/UserLogsPage";
+import { ProfilePage } from "./pages/ProfilePage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { Sidebar } from "./components/Sidebar";
 import { Topbar } from "./components/Topbar";
 import { Toast } from "./components/Toast";
@@ -36,6 +38,20 @@ function App() {
       setLoggedInAdmin(username);
       setCompanyName(data.companyName);
       showToast("Welcome back, " + username);
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegister = async (username, password, companyName) => {
+    setLoading(true);
+    try {
+      await adminService.register(username, password, companyName);
+      showToast("Admin account registered successfully!");
+      // Automatically log them in after registration for a frictionless UX
+      await handleLogin(username, password);
     } catch (err) {
       showToast(err.message, "error");
     } finally {
@@ -95,6 +111,16 @@ function App() {
     }
   };
 
+  const handleSelectUser = async (username) => {
+    setSelectedUser(username);
+    try {
+      const data = await adminService.getLogs(token, username);
+      setLogs(data);
+    } catch (err) {
+      showToast(err.message, "error");
+    }
+  };
+
   useEffect(() => {
     if (token) loadUsers();
   }, [token]);
@@ -103,7 +129,7 @@ function App() {
     return (
       <>
         {toast && <Toast message={toast.message} type={toast.type} />}
-        <AuthPage onLogin={handleLogin} loading={loading} />
+        <AuthPage onLogin={handleLogin} onRegister={handleRegister} loading={loading} />
       </>
     );
   }
@@ -120,6 +146,7 @@ function App() {
             loggedInAdmin={loggedInAdmin}
             onCreateUser={handleCreateUser}
             onLoadLogs={loadLogs}
+            onSelectUser={handleSelectUser}
           />
         );
       case "Employees":
@@ -137,6 +164,24 @@ function App() {
             username={selectedUser} 
             logs={logs} 
             onBack={() => setCurrentTab("Dashboard")} 
+          />
+        );
+      case "Profile":
+        return (
+          <ProfilePage 
+            loggedInAdmin={loggedInAdmin}
+            companyName={companyName}
+          />
+        );
+      case "Settings":
+        return (
+          <SettingsPage 
+            companyName={companyName}
+            onUpdateCompanyName={(newVal) => {
+              localStorage.setItem("company_name", newVal);
+              setCompanyName(newVal);
+            }}
+            showToast={showToast}
           />
         );
       default:
