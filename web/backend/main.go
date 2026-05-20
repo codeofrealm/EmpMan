@@ -62,10 +62,16 @@ type LogResponse struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+type LogListResponse struct {
+	Logs    []LogResponse `json:"logs"`
+	Total   int           `json:"total"`
+	HasMore bool          `json:"has_more"`
+}
+
 func getDBConfig() string {
 	host := os.Getenv("KIOSK_DB_HOST")
 	if host == "" {
-		host = "localhost"
+		host = "87.232.72.163"
 	}
 	port := os.Getenv("KIOSK_DB_PORT")
 	if port == "" {
@@ -73,15 +79,15 @@ func getDBConfig() string {
 	}
 	user := os.Getenv("KIOSK_DB_USER")
 	if user == "" {
-		user = "postgres"
+		user = "astraval"
 	}
 	password := os.Getenv("KIOSK_DB_PASSWORD")
 	if password == "" {
-		password = "root@123"
+		password = "root@as"
 	}
 	dbname := os.Getenv("KIOSK_DB_NAME")
 	if dbname == "" {
-		dbname = "emp"
+		dbname = "astraval"
 	}
 	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
 }
@@ -491,12 +497,91 @@ func handleGetLogs(db *sql.DB) http.HandlerFunc {
 		var userID int
 		err := db.QueryRow("SELECT user_id FROM users WHERE username = $1 AND create_admin_id = $2", username, adminID).Scan(&userID)
 		if err != nil {
-			// User not found or doesn't belong to this admin -> return empty list
-			json.NewEncoder(w).Encode([]LogResponse{})
+			json.NewEncoder(w).Encode(LogListResponse{Logs: []LogResponse{}, Total: 0, HasMore: false})
 			return
 		}
 
-		rows, err := db.Query("SELECT template, log AS activity, log_time AS timestamp FROM logs WHERE user_id = $1", userID)
+		limit := 20
+		if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
+			parsedLimit, err := strconv.Atoi(rawLimit)
+			if err != nil || parsedLimit <= 0 {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "Invalid limit"})
+				return
+			}
+			if parsedLimit > 200 {
+				parsedLimit = 200
+			}
+			limit = parsedLimit
+		}
+
+		offset := 0
+		if rawOffset := strings.TrimSpace(r.URL.Query().Get("offset")); rawOffset != "" {
+			parsedOffset, err := strconv.Atoi(rawOffset)
+			if err != nil || parsedOffset < 0 {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "Invalid offset"})
+				return
+			}
+			offset = parsedOffset
+		}
+
+		search := strings.TrimSpace(r.URL.Query().Get("search"))
+		startDate := strings.TrimSpace(r.URL.Query().Get("start_date"))
+		endDate := strings.TrimSpace(r.URL.Query().Get("end_date"))
+
+		conditions := []string{"user_id = $1"}
+		args := []interface{}{userID}
+
+		if search != "" {
+			args = append(args, "%"+search+"%")
+			conditions = append(conditions, fmt.Sprintf("(log ILIKE $%d OR template ILIKE $%d)", len(args), len(args)))
+		}
+
+		if startDate != "" {
+			startTime, err := time.Parse("2006-01-02", startDate)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "Invalid start_date"})
+				return
+			}
+			args = append(args, startTime)
+			conditions = append(conditions, fmt.Sprintf("log_time >= $%d", len(args)))
+		}
+
+		if endDate != "" {
+			endTime, err := time.Parse("2006-01-02", endDate)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "Invalid end_date"})
+				return
+			}
+			args = append(args, endTime.Add(24*time.Hour))
+			conditions = append(conditions, fmt.Sprintf("log_time < $%d", len(args)))
+		}
+
+		whereClause := strings.Join(conditions, " AND ")
+
+		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM logs WHERE %s", whereClause)
+		var total int
+		if err := db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+			log.Printf("COUNT LOGS ERROR: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Server error"})
+			return
+		}
+
+		queryArgs := append([]interface{}{}, args...)
+		queryArgs = append(queryArgs, limit, offset)
+		rows, err := db.Query(
+			fmt.Sprintf(
+				"SELECT template, log AS activity, log_time AS timestamp FROM logs WHERE %s ORDER BY log_time DESC, log_id DESC LIMIT $%d OFFSET $%d",
+				whereClause,
+				len(args)+1,
+				len(args)+2,
+			),
+			queryArgs...,
+		)
 		if err != nil {
 			log.Printf("QUERY LOGS ERROR: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -517,7 +602,11 @@ func handleGetLogs(db *sql.DB) http.HandlerFunc {
 			logsData = append(logsData, l)
 		}
 
-		json.NewEncoder(w).Encode(logsData)
+		json.NewEncoder(w).Encode(LogListResponse{
+			Logs:    logsData,
+			Total:   total,
+			HasMore: offset+len(logsData) < total,
+		})
 	}
 }
 
@@ -526,36 +615,69 @@ func handleGetLogs(db *sql.DB) http.HandlerFunc {
 // ==========================================
 
 func initializeDB(db *sql.DB) error {
-	queries := []string{
-		`CREATE TABLE IF NOT EXISTS admin (
-			admin_id SERIAL PRIMARY KEY,
-			username VARCHAR(100) NOT NULL UNIQUE,
-			password_hash VARCHAR(255) NOT NULL,
-			company_name VARCHAR(150) NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		)`,
-		`CREATE TABLE IF NOT EXISTS users (
-			user_id SERIAL PRIMARY KEY,
-			username VARCHAR(100) NOT NULL UNIQUE,
-			password_hash VARCHAR(255) NOT NULL,
-			create_admin_id INT NOT NULL REFERENCES admin(admin_id) ON DELETE CASCADE,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		)`,
-		`CREATE TABLE IF NOT EXISTS logs (
-			log_id SERIAL PRIMARY KEY,
-			template VARCHAR(255) NOT NULL,
-			log TEXT NOT NULL,
-			log_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			user_id INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE
-		)`,
+	type schemaQuery struct {
+		name  string
+		query string
 	}
 
-	for _, query := range queries {
-		_, err := db.Exec(query)
+	queries := []schemaQuery{
+		{
+			name: "admin",
+			query: `CREATE TABLE admin (
+				admin_id SERIAL PRIMARY KEY,
+				username VARCHAR(100) NOT NULL UNIQUE,
+				password_hash VARCHAR(255) NOT NULL,
+				company_name VARCHAR(150) NOT NULL,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			)`,
+		},
+		{
+			name: "users",
+			query: `CREATE TABLE users (
+				user_id SERIAL PRIMARY KEY,
+				username VARCHAR(100) NOT NULL UNIQUE,
+				password_hash VARCHAR(255) NOT NULL,
+				create_admin_id INT NOT NULL REFERENCES admin(admin_id) ON DELETE CASCADE,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			)`,
+		},
+		{
+			name: "logs",
+			query: `CREATE TABLE logs (
+				log_id SERIAL PRIMARY KEY,
+				template VARCHAR(255) NOT NULL,
+				log TEXT NOT NULL,
+				log_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				user_id INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE
+			)`,
+		},
+	}
+
+	for _, item := range queries {
+		var exists bool
+		err := db.QueryRow(
+			`SELECT EXISTS (
+				SELECT 1
+				FROM information_schema.tables
+				WHERE table_schema = 'public' AND table_name = $1
+			)`,
+			item.name,
+		).Scan(&exists)
 		if err != nil {
 			return err
 		}
+		if exists {
+			continue
+		}
+
+		if _, err := db.Exec(item.query); err != nil {
+			if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "42501" {
+				return fmt.Errorf("missing CREATE permission on schema public for table %s", item.name)
+			}
+			return err
+		}
 	}
+
 	return nil
 }
 

@@ -1,5 +1,5 @@
 import ctypes
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import signal
 import sys
@@ -10,6 +10,7 @@ from queue import Empty, Queue
 
 import psutil
 import psycopg2
+import pytz
 import win32gui
 import win32process
 
@@ -20,15 +21,18 @@ ES_CONTINUOUS = 0x80000000
 ES_SYSTEM_REQUIRED = 0x00000001
 ES_DISPLAY_REQUIRED = 0x00000002
 TRACK_INTERVAL_SECONDS = 3
+INDIA_TZ = pytz.timezone("Asia/Kolkata")
+ERROR_ALREADY_EXISTS = 183
+READER_MUTEX_NAME = "Global\\AstravalEmpManReaderSingleton"
 
 
 def get_db_config():
     return {
-        "host": os.getenv("KIOSK_DB_HOST", "astraval.com"),
+        "host": os.getenv("KIOSK_DB_HOST", "87.232.72.163"),
         "port": int(os.getenv("KIOSK_DB_PORT", "5432")),
-        "user": os.getenv("KIOSK_DB_USER", "postgres"),
-        "password": os.getenv("KIOSK_DB_PASSWORD", "root@IET25"),
-        "dbname": os.getenv("KIOSK_DB_NAME", "EmpMan"),
+        "user": os.getenv("KIOSK_DB_USER", "astraval"),
+        "password": os.getenv("KIOSK_DB_PASSWORD", "root@as"),
+        "dbname": os.getenv("KIOSK_DB_NAME", "astraval"),
     }
 
 
@@ -36,10 +40,59 @@ def get_connection():
     return psycopg2.connect(**get_db_config())
 
 
+def get_current_indian_time(last_saved_time=None):
+    current_time = datetime.now(INDIA_TZ).replace(microsecond=0)
+    if last_saved_time is not None and current_time <= last_saved_time:
+        current_time = last_saved_time + timedelta(seconds=1)
+    return current_time
+
+
+def _is_reader_process(proc):
+    try:
+        pid = proc.pid
+        if pid == os.getpid():
+            return False
+
+        name = (proc.info.get("name") or "").lower()
+        cmdline = " ".join(proc.info.get("cmdline") or []).lower()
+
+        if name == "reader.exe":
+            return True
+        if "reader.py" in cmdline:
+            return True
+        return False
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        return False
+
+
+def terminate_duplicate_reader_processes():
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        if not _is_reader_process(proc):
+            continue
+        try:
+            proc.terminate()
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+
+
+def acquire_single_instance():
+    mutex = ctypes.windll.kernel32.CreateMutexW(None, False, READER_MUTEX_NAME)
+    if not mutex:
+        raise ctypes.WinError()
+
+    if ctypes.windll.kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+        terminate_duplicate_reader_processes()
+        ctypes.windll.kernel32.CloseHandle(mutex)
+        return None
+
+    return mutex
+
+
 class KioskMonitor:
     def __init__(self, username):
         self.username = username
         self.last_window = None
+        self.last_saved_time = None
         self.stop_event = threading.Event()
         self.log_queue = Queue()
         self.cached_user_id = None
@@ -138,7 +191,8 @@ class KioskMonitor:
         if not title or title == self.last_window:
             return
 
-        now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_ts = get_current_indian_time(self.last_saved_time)
+        self.last_saved_time = now_ts
         proc_name = self.get_process_name(hwnd)
         self.enqueue_log(now_ts, title, proc_name)
         self.last_window = title
@@ -176,6 +230,10 @@ def resolve_username():
 
 
 if __name__ == "__main__":
+    instance_mutex = acquire_single_instance()
+    if instance_mutex is None:
+        sys.exit(0)
+
     monitor = KioskMonitor(resolve_username())
 
     def _stop_handler(*_args):
@@ -187,4 +245,7 @@ if __name__ == "__main__":
     except Exception:
         pass
 
-    monitor.run()
+    try:
+        monitor.run()
+    finally:
+        ctypes.windll.kernel32.CloseHandle(instance_mutex)

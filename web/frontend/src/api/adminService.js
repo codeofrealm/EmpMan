@@ -55,14 +55,30 @@ export const adminService = {
     });
   },
 
-  getLogs: async (token, username) => {
-    const data = await safeFetch(`${API_BASE}/admin/users/${username}/logs`, {
+  getLogs: async (token, username, options = {}) => {
+    const params = new URLSearchParams();
+
+    if (typeof options.limit === "number") params.set("limit", String(options.limit));
+    if (typeof options.offset === "number") params.set("offset", String(options.offset));
+    if (options.startDate) params.set("start_date", options.startDate);
+    if (options.endDate) params.set("end_date", options.endDate);
+    if (options.search) params.set("search", options.search);
+
+    const query = params.toString();
+    const data = await safeFetch(`${API_BASE}/admin/users/${username}/logs${query ? `?${query}` : ""}`, {
       headers: getAuthHeaders(token),
     });
-    if (!Array.isArray(data)) return [];
-    return data.map((l) => ({
-      activity: l.activity,
-      timestamp: l.timestamp,
-    }));
+
+    const logs = Array.isArray(data?.logs) ? data.logs : [];
+
+    return {
+      logs: logs.map((l) => ({
+        activity: l.activity,
+        timestamp: l.timestamp,
+        template: l.template,
+      })),
+      total: Number.isFinite(data?.total) ? data.total : logs.length,
+      hasMore: Boolean(data?.has_more),
+    };
   }
 };

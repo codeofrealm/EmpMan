@@ -21,6 +21,7 @@ function App() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
+  const [globalSearch, setGlobalSearch] = useState("");
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });
@@ -70,6 +71,7 @@ function App() {
     setUsers([]);
     setLogs([]);
     setCurrentTab("Dashboard");
+    setGlobalSearch("");
   };
 
   const loadUsers = async () => {
@@ -101,8 +103,8 @@ function App() {
     setSelectedUser(username);
     setLoading(true);
     try {
-      const data = await adminService.getLogs(token, username);
-      setLogs(data);
+      const response = await adminService.getLogs(token, username, { limit: 20 });
+      setLogs(response.logs);
       setCurrentTab("UserLogs"); // Move to logs page
     } catch (err) {
       showToast(err.message, "error");
@@ -114,8 +116,8 @@ function App() {
   const handleSelectUser = async (username) => {
     setSelectedUser(username);
     try {
-      const data = await adminService.getLogs(token, username);
-      setLogs(data);
+      const response = await adminService.getLogs(token, username, { limit: 20 });
+      setLogs(response.logs);
     } catch (err) {
       showToast(err.message, "error");
     }
@@ -144,6 +146,7 @@ function App() {
             selectedUser={selectedUser}
             loading={loading}
             loggedInAdmin={loggedInAdmin}
+            searchTerm={globalSearch}
             onCreateUser={handleCreateUser}
             onLoadLogs={loadLogs}
             onSelectUser={handleSelectUser}
@@ -162,7 +165,8 @@ function App() {
         return (
           <UserLogsPage 
             username={selectedUser} 
-            logs={logs} 
+            initialLogs={logs}
+            token={token}
             onBack={() => setCurrentTab("Dashboard")} 
           />
         );
@@ -201,8 +205,12 @@ function App() {
 
       {/* Main Content Area - Flexible Width with Offset */}
       <div className="flex-1 ml-64 min-h-screen flex flex-col">
-        <Topbar adminName={loggedInAdmin} />
-        
+        <Topbar
+          adminName={loggedInAdmin}
+          searchValue={globalSearch}
+          onSearchChange={setGlobalSearch}
+          searchPlaceholder={currentTab === "Dashboard" ? "Search employees on dashboard..." : "Search employees..."}
+        />
         <main className="flex-1">
           {renderContent()}
         </main>

@@ -103,11 +103,11 @@ try {
     }
 
     # ================= DATABASE CONFIG =================
-    $DB_HOST = if ($env:KIOSK_DB_HOST) { $env:KIOSK_DB_HOST } else { "localhost" }
+    $DB_HOST = if ($env:KIOSK_DB_HOST) { $env:KIOSK_DB_HOST } else { "87.232.72.163" }
     $DB_PORT = if ($env:KIOSK_DB_PORT) { $env:KIOSK_DB_PORT } else { "5432" }
-    $DB_USER = if ($env:KIOSK_DB_USER) { $env:KIOSK_DB_USER } else { "postgres" }
-    $DB_PASSWORD = if ($env:KIOSK_DB_PASSWORD) { $env:KIOSK_DB_PASSWORD } else { "root@123" }
-    $DB_NAME = if ($env:KIOSK_DB_NAME) { $env:KIOSK_DB_NAME } else { "emp" }
+    $DB_USER = if ($env:KIOSK_DB_USER) { $env:KIOSK_DB_USER } else { "astraval" }
+    $DB_PASSWORD = if ($env:KIOSK_DB_PASSWORD) { $env:KIOSK_DB_PASSWORD } else { "root@as" }
+    $DB_NAME = if ($env:KIOSK_DB_NAME) { $env:KIOSK_DB_NAME } else { "astraval" }
 
     function Export-DbEnvironment {
         $env:KIOSK_DB_HOST = $DB_HOST
@@ -625,6 +625,45 @@ public static class KeyboardBlocker {
     }
 
     function Start-ReaderProcess($username) {
+        $readerProcessCandidates = @()
+        if (Test-Path $READER_EXE_PRIMARY) {
+            $readerProcessCandidates += [System.IO.Path]::GetFileName($READER_EXE_PRIMARY).ToLowerInvariant()
+        }
+        if (Test-Path $READER_EXE_LEGACY) {
+            $readerProcessCandidates += [System.IO.Path]::GetFileName($READER_EXE_LEGACY).ToLowerInvariant()
+        }
+        if (Test-Path $PYTHON_SCRIPT) {
+            $readerProcessCandidates += [System.IO.Path]::GetFileName($PYTHON_SCRIPT).ToLowerInvariant()
+        }
+
+        foreach ($proc in Get-CimInstance Win32_Process) {
+            $procName = if ($proc.Name) { $proc.Name.ToLowerInvariant() } else { "" }
+            $commandLine = if ($proc.CommandLine) { $proc.CommandLine.ToLowerInvariant() } else { "" }
+
+            $isReaderProcess = $false
+            if ($readerProcessCandidates -contains $procName) {
+                $isReaderProcess = $true
+            }
+            elseif ($commandLine -like "*reader.py*") {
+                $isReaderProcess = $true
+            }
+            elseif ($commandLine -like "*reader.exe*") {
+                $isReaderProcess = $true
+            }
+
+            if (-not $isReaderProcess) {
+                continue
+            }
+
+            try {
+                Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop
+                Write-Log "Stopped duplicate Reader process: PID $($proc.ProcessId)"
+            }
+            catch {
+                Write-Log "Failed to stop Reader process PID $($proc.ProcessId): $($_.Exception.Message)"
+            }
+        }
+
         $readerExe = $null
         if (Test-Path $READER_EXE_PRIMARY) {
             $readerExe = $READER_EXE_PRIMARY
