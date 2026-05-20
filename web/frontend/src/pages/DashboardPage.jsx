@@ -261,7 +261,7 @@ export const DashboardPage = ({
                     <button
                       key={user.username}
                       type="button"
-                      onClick={() => onSelectUser(user.username)}
+                      onClick={() => onLoadLogs(user.username)}
                       className={`w-full rounded-[24px] border p-4 text-left transition-all ${
                         isSelected
                           ? "border-blue-200 bg-blue-50 shadow-[0_18px_40px_rgba(59,130,246,0.14)]"

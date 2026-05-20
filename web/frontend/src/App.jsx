@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { AuthPage } from "./pages/AuthPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { AppsPage } from "./pages/AppsPage";
 import { EmployeesPage } from "./pages/EmployeesPage";
 import { UserLogsPage } from "./pages/UserLogsPage";
 import { ProfilePage } from "./pages/ProfilePage";
@@ -21,7 +22,6 @@ function App() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
-  const [globalSearch, setGlobalSearch] = useState("");
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });
@@ -71,7 +71,6 @@ function App() {
     setUsers([]);
     setLogs([]);
     setCurrentTab("Dashboard");
-    setGlobalSearch("");
   };
 
   const loadUsers = async () => {
@@ -146,7 +145,6 @@ function App() {
             selectedUser={selectedUser}
             loading={loading}
             loggedInAdmin={loggedInAdmin}
-            searchTerm={globalSearch}
             onCreateUser={handleCreateUser}
             onLoadLogs={loadLogs}
             onSelectUser={handleSelectUser}
@@ -159,6 +157,13 @@ function App() {
             onLoadLogs={loadLogs} 
             onCreateUser={handleCreateUser} 
             loading={loading}
+          />
+        );
+      case "Apps":
+        return (
+          <AppsPage
+            users={users}
+            logs={logs}
           />
         );
       case "UserLogs":
@@ -205,12 +210,7 @@ function App() {
 
       {/* Main Content Area - Flexible Width with Offset */}
       <div className="flex-1 ml-64 min-h-screen flex flex-col">
-        <Topbar
-          adminName={loggedInAdmin}
-          searchValue={globalSearch}
-          onSearchChange={setGlobalSearch}
-          searchPlaceholder={currentTab === "Dashboard" ? "Search employees on dashboard..." : "Search employees..."}
-        />
+        <Topbar adminName={loggedInAdmin} />
         <main className="flex-1">
           {renderContent()}
         </main>

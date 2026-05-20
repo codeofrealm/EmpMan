@@ -44,7 +44,12 @@ export const Sidebar = ({ activeTab = "Dashboard", onTabChange, onLogout, compan
           active={activeTab === "Dashboard"} 
           onClick={() => onTabChange("Dashboard")}
         />
-        <SidebarItem icon={Grid} label="Apps" />
+        <SidebarItem
+          icon={Grid}
+          label="Apps"
+          active={activeTab === "Apps"}
+          onClick={() => onTabChange("Apps")}
+        />
 
         <div className="px-6 mb-2 mt-6">
           <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Employee</span>
