@@ -1,5 +1,5 @@
 import ctypes
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 import signal
 import sys
@@ -10,7 +10,6 @@ from queue import Empty, Queue
 
 import psutil
 import psycopg2
-import pytz
 import win32gui
 import win32process
 
@@ -21,7 +20,8 @@ ES_CONTINUOUS = 0x80000000
 ES_SYSTEM_REQUIRED = 0x00000001
 ES_DISPLAY_REQUIRED = 0x00000002
 TRACK_INTERVAL_SECONDS = 3
-INDIA_TZ = pytz.timezone("Asia/Kolkata")
+# India Standard Time is always UTC+05:30 and does not observe DST.
+INDIA_TZ = timezone(timedelta(hours=5, minutes=30), name="IST")
 ERROR_ALREADY_EXISTS = 183
 READER_MUTEX_NAME = "Global\\AstravalEmpManReaderSingleton"
 

@@ -15,11 +15,11 @@ VALID_TABLES = {ADMIN_TABLE, USER_TABLE}
 
 def db_config() -> Dict[str, object]:
     return {
-        "host": os.getenv("KIOSK_DB_HOST", "astraval.com"),
+        "host": os.getenv("KIOSK_DB_HOST", "87.232.72.163"),
         "port": int(os.getenv("KIOSK_DB_PORT", "5432")),
-        "user": os.getenv("KIOSK_DB_USER", "postgres"),
-        "password": os.getenv("KIOSK_DB_PASSWORD", "root@IET25"),
-        "dbname": os.getenv("KIOSK_DB_NAME", "EmpMan"),
+        "user": os.getenv("KIOSK_DB_USER", "astraval"),
+        "password": os.getenv("KIOSK_DB_PASSWORD", "root@as"),
+        "dbname": os.getenv("KIOSK_DB_NAME", "astraval"),
     }
 
 
@@ -144,11 +144,35 @@ def create_admin(username: str, password: str) -> bool:
     return True
 
 
+def get_company_name(username: str) -> str:
+    username = username.strip()
+    if not username:
+        return ""
+
+    with closing(get_connection()) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT admin.company_name
+                FROM users
+                JOIN admin ON users.create_admin_id = admin.admin_id
+                WHERE users.username = %s
+                LIMIT 1
+                """,
+                (username,),
+            )
+            row = cur.fetchone()
+            if not row or row[0] is None:
+                return ""
+            return str(row[0]).strip()
+
+
 def usage() -> int:
     print("Usage:")
     print("  python auth_login.py <username> <password>  # user only (legacy mode)")
     print("  python auth_login.py user-auth <username> <password>")
     print("  python auth_login.py admin-auth <username> <password>")
+    print("  python auth_login.py company-name <username>")
     print("  python auth_login.py create-admin <username> <password>")
     print("  python auth_login.py create-user <admin_user> <admin_pass> <new_user> <new_pass>")
     return 2
@@ -174,6 +198,14 @@ def handle_args(args: Sequence[str]) -> int:
         ok = validate_login(ADMIN_TABLE, args[1], args[2])
         print("AUTH_OK" if ok else "AUTH_FAIL: invalid admin credentials")
         return 0 if ok else 1
+
+    if command == "company-name" and len(args) == 2:
+        company_name = get_company_name(args[1])
+        if company_name:
+            print(company_name)
+            return 0
+        print("AUTH_FAIL: company name not found")
+        return 1
 
     if command == "create-admin" and len(args) == 3:
         ok = create_admin(args[1], args[2])

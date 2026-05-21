@@ -117,6 +117,39 @@ try {
         $env:KIOSK_DB_NAME = $DB_NAME
     }
 
+    function Get-DatabaseFailureMessage {
+        param([string]$DetailText)
+
+        if ([string]::IsNullOrWhiteSpace($DetailText)) {
+            return "Database connection failed."
+        }
+
+        $detail = $DetailText.ToLowerInvariant()
+        if ($detail -match "password authentication failed|authentication failed for user") {
+            return "Database login failed (username/password)."
+        }
+        if ($detail -match "could not connect|connection refused|timeout|timed out|no route to host|network is unreachable") {
+            return "Database server unreachable (network/port)."
+        }
+        if ($detail -match "could not translate host name|name or service not known|getaddrinfo") {
+            return "Database host name is invalid."
+        }
+        if ($detail -match "database .* does not exist") {
+            return "Database name is invalid or missing."
+        }
+        if ($detail -match "ssl|certificate") {
+            return "Database SSL/security error."
+        }
+
+        $lines = $DetailText -split "(`r`n|`n|`r)" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        $meaningful = $lines | Where-Object { $_ -notmatch "(?i)^traceback" -and $_ -notmatch "^File\s" }
+        if ($meaningful) {
+            return "Database error: $($meaningful[-1])"
+        }
+
+        return "Database connection failed."
+    }
+
     # ================= LOGGING =================
     $localLowRoot = if ($env:USERPROFILE -and $env:USERPROFILE.Trim().Length -gt 0) {
         Join-Path $env:USERPROFILE "AppData\LocalLow\Microsoft\KioskLock"
@@ -317,6 +350,71 @@ try {
         Write-Log "Auth script not found. Will use inline auth fallback."
     }
 
+    function Get-CompanyNameForUser {
+        param([string]$Username)
+
+        $normalizedUsername = if ($null -eq $Username) { "" } else { $Username.Trim() }
+        if ([string]::IsNullOrWhiteSpace($normalizedUsername)) {
+            return ""
+        }
+
+        Export-DbEnvironment
+
+        try {
+            if ($AUTH_SCRIPT -and (Test-Path $AUTH_SCRIPT) -and ([System.IO.Path]::GetExtension($AUTH_SCRIPT) -ieq ".exe")) {
+                $companyResult = Invoke-HiddenProcess -FilePath $AUTH_SCRIPT -Arguments @("company-name", $normalizedUsername)
+                if ($companyResult.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($companyResult.Output)) {
+                    return $companyResult.Output.Trim()
+                }
+                if (-not [string]::IsNullOrWhiteSpace($companyResult.Output)) {
+                    Write-Log ("Company name lookup via exe failed: " + $companyResult.Output)
+                }
+            }
+
+            if ($PYTHON_EXE) {
+                $inlineCompanyScript = @'
+import os
+import sys
+import psycopg2
+
+username = (sys.argv[1] if len(sys.argv) > 1 else '').strip()
+if not username:
+    raise SystemExit(1)
+
+try:
+    conn = psycopg2.connect(
+        host=os.getenv('KIOSK_DB_HOST'),
+        port=os.getenv('KIOSK_DB_PORT'),
+        user=os.getenv('KIOSK_DB_USER'),
+        password=os.getenv('KIOSK_DB_PASSWORD'),
+        dbname=os.getenv('KIOSK_DB_NAME'),
+    )
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT admin.company_name FROM users JOIN admin ON users.create_admin_id = admin.admin_id WHERE users.username = %s LIMIT 1',
+            (username,)
+        )
+        row = cur.fetchone()
+        if row:
+            print(row[0])
+    conn.close()
+except:
+    pass
+'@
+                $companyName = & $PYTHON_EXE -c $inlineCompanyScript $normalizedUsername 2>&1
+                $exitCode = $LASTEXITCODE
+                if ($exitCode -eq 0 -and $companyName) {
+                    return ($companyName | Out-String).Trim()
+                }
+            }
+        }
+        catch {
+            Write-Log ("Company name lookup failed: " + $_.Exception.Message)
+        }
+
+        return ""
+    }
+
     # ================= DATABASE CHECK =================
     function Test-DatabaseConnection {
         $script:LastAuthMessage = ""
@@ -343,22 +441,8 @@ try {
                 }
             }
             if ($exitCode -ne 0) {
-                $detail = if ([string]::IsNullOrWhiteSpace($dbText)) { "" } else { $dbText.ToLowerInvariant() }
-                if ($detail -match "password authentication failed") {
-                    $script:LastAuthMessage = "Database login failed (username/password)."
-                }
-                elseif ($detail -match "could not connect|connection refused|timeout|timed out|no route|network") {
-                    $script:LastAuthMessage = "Database server unreachable (network/port)."
-                }
-                elseif ($detail -match "could not translate host name|name or service not known|getaddrinfo") {
-                    $script:LastAuthMessage = "Database host name is invalid."
-                }
-                elseif ((-not [string]::IsNullOrWhiteSpace($dbSummary)) -and ($dbSummary -notmatch "(?i)^traceback")) {
-                    $script:LastAuthMessage = "Database error: $dbSummary"
-                }
-                else {
-                    $script:LastAuthMessage = "Database connection failed (runtime error)."
-                }
+                $messageSource = if (-not [string]::IsNullOrWhiteSpace($dbText)) { $dbText } else { $dbSummary }
+                $script:LastAuthMessage = Get-DatabaseFailureMessage -DetailText $messageSource
             }
             return ($exitCode -eq 0)
         }
@@ -391,6 +475,7 @@ try {
     # ================= PYTHON AUTH =================
     function Test-Login($userInput, $passwordInput) {
         $script:LastAuthMessage = ""
+        Export-DbEnvironment
 
         try {
             $exitCode = 1
@@ -483,8 +568,8 @@ finally:
 
             if (-not [string]::IsNullOrWhiteSpace($authText)) {
                 Write-Log ("Auth script: " + $authText)
-                if ($authText -match "database error") {
-                    $script:LastAuthMessage = "Database error during login."
+                if ($authText -match "(?i)database error") {
+                    $script:LastAuthMessage = Get-DatabaseFailureMessage -DetailText $authText
                 }
                 elseif ($authText -match "(?i)missing username/password") {
                     $script:LastAuthMessage = "Enter username and password."
@@ -828,58 +913,10 @@ public static class KeyboardBlocker {
             $window.Activate() | Out-Null
         })
 
-    $inlineCompanyScript = @'
-import os
-import sys
-import psycopg2
-
-username = (sys.argv[1] if len(sys.argv) > 1 else '').strip()
-if not username:
-    raise SystemExit(1)
-
-try:
-    conn = psycopg2.connect(
-        host=os.getenv('KIOSK_DB_HOST'),
-        port=os.getenv('KIOSK_DB_PORT'),
-        user=os.getenv('KIOSK_DB_USER'),
-        password=os.getenv('KIOSK_DB_PASSWORD'),
-        dbname=os.getenv('KIOSK_DB_NAME'),
-    )
-    with conn.cursor() as cur:
-        cur.execute(
-            'SELECT admin.company_name FROM users JOIN admin ON users.create_admin_id = admin.admin_id WHERE users.username = %s LIMIT 1',
-            (username,)
-        )
-        row = cur.fetchone()
-        if row:
-            print(row[0])
-    conn.close()
-except:
-    pass
-'@
-
     $userBox.Add_LostFocus({
             $username = $userBox.Text.Trim()
             if (-not [string]::IsNullOrWhiteSpace($username)) {
-                if ($null -ne $script:SavedConfig -and $script:SavedConfig.username -eq $username) {
-                    $companyNameTxt.Text = $script:SavedConfig.companyName
-                    return
-                }
-                if ($PYTHON_EXE) {
-                    try {
-                        $companyName = & $PYTHON_EXE -c $inlineCompanyScript $username 2>&1
-                        $exitCode = $LASTEXITCODE
-                        if ($exitCode -eq 0 -and $companyName) {
-                            $companyNameTxt.Text = ($companyName | Out-String).Trim()
-                        }
-                        else {
-                            $companyNameTxt.Text = ""
-                        }
-                    }
-                    catch {
-                        $companyNameTxt.Text = ""
-                    }
-                }
+                $companyNameTxt.Text = Get-CompanyNameForUser -Username $username
             }
             else {
                 $companyNameTxt.Text = ""
@@ -899,6 +936,10 @@ except:
             $loginBtn.IsEnabled = $false
             $msg.Text = "Verifying..."
 
+            if ([string]::IsNullOrWhiteSpace($companyNameTxt.Text)) {
+                $companyNameTxt.Text = Get-CompanyNameForUser -Username $username
+            }
+
             # NOTE: Test-DatabaseConnection is NOT called here.
             # It blocks the STA/UI thread (Python subprocess) causing white-screen freeze.
             # Auth already handles DB errors internally via Test-Login.
@@ -907,8 +948,7 @@ except:
                 Write-Log "User unlock success: $username"
                 try {
                     $configData = @{
-                        username    = $username
-                        companyName = $companyNameTxt.Text
+                        username = $username
                     }
                     $configData | ConvertTo-Json | Out-File -FilePath $CONFIG_PATH -Encoding UTF8 -Force
                 }
@@ -952,9 +992,6 @@ except:
             $script:SavedConfig = Get-Content -Path $CONFIG_PATH -Raw | ConvertFrom-Json
             if ($script:SavedConfig.username) {
                 $userBox.Text = $script:SavedConfig.username
-            }
-            if ($script:SavedConfig.companyName) {
-                $companyNameTxt.Text = $script:SavedConfig.companyName
             }
         }
     }
